@@ -1,0 +1,80 @@
+{
+  "modus": "taeglich",
+  "wochentag_fuer_wochenbericht": 4,
+  "historie_jahre": 15,
+  "signal_schwelle": 60,
+  "bericht_url": "",
+
+  "etfs": [
+    {"ticker": "EUNL.DE", "name": "iShares Core MSCI World", "rolle": "Basis Welt"},
+    {"ticker": "VWCE.DE", "name": "Vanguard FTSE All-World (Acc)", "rolle": "Basis Welt inkl. Schwellenländer"},
+    {"ticker": "SXR8.DE", "name": "iShares Core S&P 500", "rolle": "USA"},
+    {"ticker": "SXRV.DE", "name": "iShares Nasdaq 100", "rolle": "USA Technologie"},
+    {"ticker": "EXSA.DE", "name": "iShares STOXX Europe 600", "rolle": "Europa"},
+    {"ticker": "IS3N.DE", "name": "iShares Core MSCI EM IMI", "rolle": "Schwellenländer"},
+    {"ticker": "QDVE.DE", "name": "iShares S&P 500 Information Technology", "rolle": "Branche Technologie"}
+  ],
+
+  "aktien": [
+    {"ticker": "AAPL", "name": "Apple"},
+    {"ticker": "NVDA", "name": "Nvidia"},
+    {"ticker": "MSFT", "name": "Microsoft"},
+    {"ticker": "AMZN", "name": "Amazon"},
+    {"ticker": "GOOGL", "name": "Alphabet (Google)"}
+  ],
+
+  "markt": {
+    "indizes": [
+      {"ticker": "^GSPC", "name": "S&P 500"},
+      {"ticker": "^NDX", "name": "Nasdaq 100"},
+      {"ticker": "^GDAXI", "name": "DAX"},
+      {"ticker": "^STOXX50E", "name": "Euro Stoxx 50"}
+    ],
+    "umfeld": [
+      {"ticker": "^VIX", "name": "Angstindex VIX", "einheit": "Punkte"},
+      {"ticker": "^TNX", "name": "US-Zins 10 Jahre", "einheit": "%"},
+      {"ticker": "EURUSD=X", "name": "Euro in Dollar", "einheit": "USD"},
+      {"ticker": "GC=F", "name": "Gold", "einheit": "USD/Unze"},
+      {"ticker": "BZ=F", "name": "Öl (Brent)", "einheit": "USD/Barrel"}
+    ],
+    "sektoren": [
+      {"ticker": "XLK", "name": "Technologie"},
+      {"ticker": "XLV", "name": "Gesundheit"},
+      {"ticker": "XLF", "name": "Finanzen"},
+      {"ticker": "XLE", "name": "Energie"},
+      {"ticker": "XLI", "name": "Industrie"},
+      {"ticker": "XLY", "name": "Zyklischer Konsum"},
+      {"ticker": "XLP", "name": "Basiskonsum"},
+      {"ticker": "XLU", "name": "Versorger"}
+    ]
+  },
+
+  "nachrichten": {
+    "anzahl": 8,
+    "feeds": [
+      {"name": "tagesschau Wirtschaft", "url": "https://www.tagesschau.de/wirtschaft/index~rss2.xml"},
+      {"name": "SPIEGEL Wirtschaft", "url": "https://www.spiegel.de/wirtschaft/index.rss"},
+      {"name": "n-tv Wirtschaft", "url": "https://www.n-tv.de/wirtschaft/rss"}
+    ]
+  },
+
+  "termine": [
+    {"datum": "2026-12-09", "titel": "US-Notenbank (Fed): Zinsentscheid"},
+    {"datum": "2026-12-17", "titel": "EZB: Zinsentscheid"},
+    {"datum": "2027-01-27", "titel": "US-Notenbank (Fed): Zinsentscheid"},
+    {"datum": "2027-02-04", "titel": "EZB: Zinsentscheid"},
+    {"datum": "2027-03-17", "titel": "US-Notenbank (Fed): Zinsentscheid"},
+    {"datum": "2027-03-18", "titel": "EZB: Zinsentscheid"},
+    {"datum": "2027-04-28", "titel": "US-Notenbank (Fed): Zinsentscheid"},
+    {"datum": "2027-04-29", "titel": "EZB: Zinsentscheid"},
+    {"datum": "2027-06-09", "titel": "US-Notenbank (Fed): Zinsentscheid"},
+    {"datum": "2027-06-10", "titel": "EZB: Zinsentscheid"},
+    {"datum": "2027-07-22", "titel": "EZB: Zinsentscheid"},
+    {"datum": "2027-07-28", "titel": "US-Notenbank (Fed): Zinsentscheid"},
+    {"datum": "2027-09-09", "titel": "EZB: Zinsentscheid"},
+    {"datum": "2027-09-15", "titel": "US-Notenbank (Fed): Zinsentscheid"},
+    {"datum": "2027-10-28", "titel": "EZB: Zinsentscheid"},
+    {"datum": "2027-11-17", "titel": "US-Notenbank (Fed): Zinsentscheid"},
+    {"datum": "2027-12-16", "titel": "EZB: Zinsentscheid"}
+  ]
+}

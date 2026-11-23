@@ -1,1 +1,349 @@
+"""HTML-Bericht: Web-Version (mit Diagrammen) und E-Mail-Version (ohne Skripte)."""
+
+from __future__ import annotations
+
+import html
+import json
+import math
+
+import pandas as pd
+
+from analyse import BAUSTEIN_NAMEN, KURS_BAUSTEINE, stufe
+
+GLOSSAR = [
+    ("Score (0–100)", "Fasst zusammen, wie günstig ein Wert im Vergleich zu seiner eigenen Vergangenheit steht. "
+     "Hoch = historisch eher günstiger Moment. Keine Vorhersage."),
+    ("Abstand zum Hoch", "Wie viel Prozent der Kurs unter seinem bisher höchsten Stand liegt. "
+     "Ab 10 % spricht man von Korrektur, ab 20 % von Bärenmarkt."),
+    ("200-Tage-Linie", "Durchschnittskurs der letzten 200 Handelstage. Darüber gilt der langfristige Trend als intakt, "
+     "deutlich darunter ist es oft günstig, aber der Trend ist gebrochen."),
+    ("RSI (Wochen)", "Misst, wie stark und einseitig ein Kurs zuletzt gestiegen oder gefallen ist. "
+     "Unter 30 = überverkauft (viel Pessimismus), über 70 = überkauft."),
+    ("5-Jahres-Trend", "Langfristige Wachstumslinie des Kurses. Liegt er deutlich darunter, ist er im Vergleich zum "
+     "eigenen Langfristtrend günstig."),
+    ("Golden / Death Cross", "50-Tage-Linie schneidet die 200-Tage-Linie von unten (Golden, positiv) "
+     "bzw. von oben (Death, negativ)."),
+    ("KGV", "Kurs-Gewinn-Verhältnis: Wie viele Jahresgewinne man für die Aktie bezahlt. "
+     "Erwartetes KGV nutzt den Gewinn, den Analysten für die nächsten 12 Monate schätzen."),
+    ("VIX", "Angstindex: erwartete Schwankung des S&P 500. Unter 18 ruhig, über 25 Angst."),
+    ("Marktbreite", "Steigen viele Aktien oder nur wenige Riesen? Gemessen am gleichgewichteten gegen den normalen "
+     "S&P 500."),
+    ("Sparplan", "Regelmäßig fester Betrag, egal wie der Markt steht. Bei Trade Republic für ETFs kostenlos. "
+     "Die solide Grundlage – Extra-Käufe bei Signalen sind nur die Ergänzung."),
+]
+
+
+WOCHENTAGE = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+
+
+def _e(x):
+    return html.escape(str(x))
+
+
+def pct(x, nachkomma=1, vorzeichen=True):
+    if x is None or (isinstance(x, float) and math.isnan(x)):
+        return "–"
+    s = f"{x * 100:{'+' if vorzeichen else ''}.{nachkomma}f} %"
+    return s.replace(".", ",")
+
+
+def zahl(x, nachkomma=2):
+    if x is None or (isinstance(x, float) and math.isnan(x)):
+        return "–"
+    return f"{x:,.{nachkomma}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def eur(x):
+    return "–" if x is None or (isinstance(x, float) and math.isnan(x)) else f"{zahl(x, 0)} €"
+
+
+def farbe_pct(x):
+    if x is None or (isinstance(x, float) and math.isnan(x)):
+        return "#6e7781"
+    return "#1a7f37" if x >= 0 else "#cf222e"
+
+
+def _perf_zellen(perf, keys=("1T", "1W", "1M", "lfd. Jahr")):
+    return "".join(f'<td class="n" style="color:{farbe_pct(perf.get(k))}">{pct(perf.get(k))}</td>' for k in keys)
+
+
+CSS = """
+body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:900px;margin:auto;padding:12px;color:#1f2328;background:#f6f8fa;font-size:15px}
+h1{font-size:22px;margin:4px 0} h2{font-size:18px;margin:26px 0 8px;border-bottom:2px solid #d0d7de;padding-bottom:4px}
+h3{font-size:16px;margin:4px 0} small,.grau{color:#656d76}
+.box{background:#fff;border-radius:10px;padding:12px 14px;margin:10px 0;box-shadow:0 1px 2px #0001}
+table{border-collapse:collapse;width:100%} td,th{padding:5px 6px;border-bottom:1px solid #eaeef2;text-align:left;font-size:14px;vertical-align:top}
+th{font-size:12px;color:#656d76;font-weight:600} .n{text-align:right;white-space:nowrap}
+.pill{display:inline-block;color:#fff;border-radius:12px;padding:2px 9px;font-size:12px;margin-top:2px}
+.ampel{border-left:8px solid;padding-left:12px}
+.score{font-size:30px;font-weight:700}
+.bar{display:flex;gap:6px;align-items:center;font-size:12px;margin:3px 0}
+.bar span{width:120px} .bar div{flex:1;background:#eaeef2;height:7px;border-radius:4px}
+.bar i{display:block;height:7px;background:#4c9a2a;border-radius:4px} .bar b{width:42px;text-align:right}
+.warn{background:#fff8c5;padding:8px 10px;border-radius:6px}
+.tabwrap{overflow-x:auto}
+a{color:#0969da;text-decoration:none}
+"""
+
+
+def _bausteine_html(row, art, bewertung=None):
+    b = KURS_BAUSTEINE[art]
+    faktor = 0.8 if bewertung is not None else 1.0
+    teile = []
+    for k, (gew, _) in b.items():
+        wert = row[f"p_{k}"] * faktor
+        max_ = gew * faktor
+        teile.append((BAUSTEIN_NAMEN[k], wert, max_))
+    if bewertung is not None:
+        teile.append((BAUSTEIN_NAMEN["bewertung"], bewertung, 20))
+    return "".join(
+        f"<div class='bar'><span>{n}</span><div><i style='width:{(w / m * 100 if m else 0):.0f}%'></i></div>"
+        f"<b>{w:.0f}/{m:.0f}</b></div>" for n, w, m in teile)
+
+
+def _rueckblick_html(rb, schwelle):
+    if not rb:
+        return ""
+    diff = rb.get("wert_signal", float("nan")) - rb.get("wert_sparplan", float("nan"))
+    fazit = ""
+    if not math.isnan(diff):
+        fazit = ("Das Signal hätte hier geholfen." if diff > 0
+                 else "Das Signal hätte hier nichts gebracht – der einfache Sparplan war besser.")
+    return f"""
+    <details><summary class="grau">Rückblick-Test (Score ≥ {schwelle:.0f})</summary>
+    <table><tr><th></th><th class="n">alle Tage</th><th class="n">Signal-Tage</th></tr>
+    <tr><td>Ø Rendite in den 12 Monaten danach</td><td class="n">{pct(rb.get('rendite_alle'))}</td><td class="n">{pct(rb.get('rendite_signal'))}</td></tr>
+    <tr><td>Anteil positiver Jahre danach</td><td class="n">{pct(rb.get('positiv_alle'), 0, False)}</td><td class="n">{pct(rb.get('positiv_signal'), 0, False)}</td></tr>
+    <tr><td>Anzahl Tage</td><td class="n">{rb.get('tage', '–')}</td><td class="n">{rb.get('signaltage', '–')}</td></tr></table>
+    <p class="grau" style="font-size:13px">Mit {eur(rb.get('eingezahlt'))} eingezahlt: reiner Sparplan {eur(rb.get('wert_sparplan'))},
+    Sparplan 70 % + Reserve bei Signal {eur(rb.get('wert_signal'))}. {fazit}</p></details>"""
+
+
+def _karte(e, i, schwelle, art, web):
+    if e.get("fehler"):
+        return f"<div class='box'><h3>{_e(e['name'])}</h3><p class='warn'>Keine Daten: {_e(e['fehler'])}</p></div>"
+    df = e["df"]
+    row = df.iloc[-1]
+    score = e["score"]
+    text, farbe = stufe(score)
+    kreuz = df[df["golden_cross"] | df["death_cross"]].tail(1)
+    kreuz_txt = "–"
+    if len(kreuz):
+        kreuz_txt = ("Golden Cross" if kreuz["golden_cross"].iloc[0] else "Death Cross") + f" am {kreuz.index[0]:%d.%m.%Y}"
+
+    extra = ""
+    if art == "aktie":
+        f = e["firma"]
+        termin = f.get("zahlen_termin")
+        termin_txt = f"{termin:%d.%m.%Y}" if termin is not None and not pd.isna(termin) else "–"
+        extra = f"""
+        <tr><td>KGV / erwartetes KGV</td><td class="n">{zahl(f.get('kgv'), 1)} / {zahl(f.get('kgv_erwartet'), 1)}</td></tr>
+        <tr><td>Umsatz- / Gewinnwachstum</td><td class="n">{pct(f.get('umsatzwachstum'), 0)} / {pct(f.get('gewinnwachstum'), 0)}</td></tr>
+        <tr><td>Analysten-Kursziel (USD)</td><td class="n">{zahl(f.get('kursziel'))}</td></tr>
+        <tr><td>Nächste Quartalszahlen</td><td class="n">{termin_txt}</td></tr>"""
+        kurs_txt = f"{zahl(e['kurs_eur'])} € <small>({zahl(row['kurs'])} $)</small>"
+    else:
+        kurs_txt = f"{zahl(row['kurs'])} €"
+
+    chart = ""
+    if web:
+        chart = f"<canvas id='c{art}{i}' height='120'></canvas>"
+    return f"""
+    <div class="box" id="{art}{i}">
+      <h3>{_e(e['name'])} <small>{_e(e['ticker'])}{' · ' + _e(e['rolle']) if e.get('rolle') else ''}</small></h3>
+      <p><span class="score" style="color:{farbe}">{score:.0f}</span> <span class="pill" style="background:{farbe}">{text}</span></p>
+      {_bausteine_html(row, art, e.get('bewertung'))}
+      <table style="margin-top:8px">
+        <tr><td>Kurs</td><td class="n">{kurs_txt}</td></tr>
+        <tr><td>Abstand zum Hoch</td><td class="n">{pct(row['rueckgang'])}</td></tr>
+        <tr><td>Abstand 200-Tage-Linie</td><td class="n">{pct(row['abstand200'])}</td></tr>
+        <tr><td>Wochen-RSI</td><td class="n">{row['rsi_w']:.0f}</td></tr>
+        <tr><td>Schwankung (1 Jahr)</td><td class="n">{pct(row['vola'], 0, False)}</td></tr>
+        <tr><td>Letztes Kreuz-Signal</td><td class="n">{kreuz_txt}</td></tr>
+        {extra}
+      </table>
+      {chart}
+      {_rueckblick_html(e.get('rb'), schwelle)}
+    </div>"""
+
+
+def _chartdaten(e):
+    t = e["df"].iloc[-2 * 252:]
+    return {"l": [d.strftime("%Y-%m-%d") for d in t.index],
+            "k": [round(v, 2) for v in t["kurs"]],
+            "s": [None if pd.isna(v) else round(v, 2) for v in t["sma200"]],
+            "sc": [None if pd.isna(v) else round(v, 1) for v in t["kurs_score"]]}
+
+
+def erstelle(d: dict, web: bool = True) -> str:
+    schwelle = d["schwelle"]
+    k = d["klima"]
+
+    # Überblick: beste Einstiegsmomente
+    alle = [(e, "etf") for e in d["etfs"] if not e.get("fehler")] + \
+           [(e, "aktie") for e in d["aktien"] if not e.get("fehler")]
+    alle.sort(key=lambda x: x[0]["score"], reverse=True)
+    top = [x for x in alle if x[0]["score"] >= schwelle]
+    if top:
+        top_html = "<ul>" + "".join(
+            f"<li><b>{_e(e['name'])}</b>: Score {e['score']:.0f} – {stufe(e['score'])[0]}</li>" for e, _ in top) + "</ul>"
+    else:
+        top_html = (f"<p>Heute liegt kein Wert über der Signal-Schwelle von {schwelle:.0f}. "
+                    "Sparplan einfach normal weiterlaufen lassen.</p>")
+
+    def score_zeilen(liste, art):
+        z = []
+        for i, e in enumerate(liste):
+            if e.get("fehler"):
+                z.append(f"<tr><td>{_e(e['name'])}</td><td colspan='6' class='grau'>keine Daten</td></tr>")
+                continue
+            text, farbe = stufe(e["score"])
+            z.append(f"<tr><td><a href='#{art}{i}'>{_e(e['name'])}</a><br>"
+                     f"<span class='pill' style='background:{farbe}'>{text}</span></td>"
+                     f"<td class='n'><b style='color:{farbe};font-size:17px'>{e['score']:.0f}</b></td>"
+                     + _perf_zellen(e["perf"], ("1M",)) +
+                     f"<td class='n'>{pct(e['df']['rueckgang'].iloc[-1], 0)}</td></tr>")
+        return "".join(z)
+
+    kopf = ("<tr><th>Name / Einschätzung</th><th class='n'>Score</th>"
+            "<th class='n'>1 Monat</th><th class='n'>vom Hoch</th></tr>")
+
+    indizes = "".join(f"<tr><td>{_e(x['name'])}</td><td class='n'>{zahl(x['kurs'], 0)}</td>"
+                      + _perf_zellen(x["perf"], ("1T", "1M", "lfd. Jahr")) + "</tr>" for x in d["indizes"])
+    umfeld = "".join(f"<tr><td>{_e(x['name'])}</td><td class='n'>{zahl(x['kurs'], 2)}<br><small>{_e(x['einheit'])}</small></td>"
+                     + _perf_zellen(x["perf"], ("1T", "1M")) + "</tr>" for x in d["umfeld"])
+    sektoren = "".join(f"<tr><td>{_e(x['name'])}</td>" + _perf_zellen(x["perf"], ("1W", "1M", "3M")) + "</tr>"
+                       for x in sorted(d["sektoren"], key=lambda s: s["perf"].get("1M", 0), reverse=True))
+
+    def _news(n):
+        titel = _e(n["titel"])
+        if n.get("link"):
+            titel = f"<a href='{_e(n['link'])}'>{titel}</a>"
+        zeit = n["zeit"].strftime(", %d.%m. %H:%M") if n.get("zeit") else ""
+        return f"<li>{titel} <small>– {_e(n['quelle'])}{zeit}</small></li>"
+
+    news = "".join(_news(n) for n in d["nachrichten"]) or "<li class='grau'>Keine Nachrichten abrufbar.</li>"
+    termine = "".join(f"<tr><td class='n'>{WOCHENTAGE[t['datum'].weekday()][:2]} {t['datum']:%d.%m.}</td><td>{_e(t['titel'])}</td></tr>"
+                      for t in d["termine"]) or "<tr><td class='grau'>Keine Termine in den nächsten 30 Tagen.</td></tr>"
+
+    karten_etf = "".join(_karte(e, i, schwelle, "etf", web) for i, e in enumerate(d["etfs"]))
+    karten_aktie = "".join(_karte(e, i, schwelle, "aktie", web) for i, e in enumerate(d["aktien"]))
+    glossar = "".join(f"<p><b>{_e(a)}</b>: {_e(b)}</p>" for a, b in GLOSSAR)
+
+    demo = "<p class='warn'><b>DEMO-MODUS</b>: simulierte Kurse, keine echten Marktdaten.</p>" if d["demo"] else ""
+    link = (f"<p><a href='{_e(d['url'])}'>Bericht mit Diagrammen im Browser öffnen →</a></p>"
+            if (not web and d.get("url")) else "")
+    titel = "Wochenbericht" if d["modus"] == "woechentlich" else "Tagesbericht"
+
+    skripte = ""
+    if web:
+        daten = {f"etf{i}": _chartdaten(e) for i, e in enumerate(d["etfs"]) if not e.get("fehler")}
+        daten.update({f"aktie{i}": _chartdaten(e) for i, e in enumerate(d["aktien"]) if not e.get("fehler")})
+        skripte = """
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+const D = """ + json.dumps(daten) + """;
+for (const [id, d] of Object.entries(D)) {
+  const el = document.getElementById('c' + id); if (!el) continue;
+  new Chart(el, {type:'line', data:{labels:d.l, datasets:[
+    {label:'Kurs', data:d.k, borderColor:'#0969da', pointRadius:0, borderWidth:1.5, yAxisID:'y'},
+    {label:'200-Tage-Linie', data:d.s, borderColor:'#8c959f', borderDash:[4,3], pointRadius:0, borderWidth:1, yAxisID:'y'},
+    {label:'Score', data:d.sc, borderColor:'#4c9a2a', backgroundColor:'#4c9a2a22', fill:true, pointRadius:0, borderWidth:1, yAxisID:'s'}]},
+    options:{interaction:{mode:'index',intersect:false}, plugins:{legend:{position:'bottom',labels:{boxWidth:12}}},
+      scales:{x:{ticks:{maxTicksLimit:6}}, s:{position:'right',min:0,max:100,grid:{drawOnChartArea:false}}}}});
+}
+</script>"""
+
+    return f"""<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Markt-{titel} {d['datum']:%d.%m.%Y}</title><style>{CSS}</style></head><body>
+<h1>Markt-{titel}</h1><p class="grau">{WOCHENTAGE[d['datum'].weekday()]}, {d['datum']:%d.%m.%Y %H:%M} Uhr</p>
+{demo}{link}
+
+<div class="box ampel" style="border-color:{k['farbe']}">
+  <h3 style="color:{k['farbe']}">Marktklima: {k['titel']}</h3>
+  <ul>{''.join(f'<li>{_e(g)}</li>' for g in k['gruende'])}</ul>
+  <p><b>Was heißt das für dich?</b> {_e(k['rat'])}</p>
+</div>
+
+<div class="box"><h3>Heute auffällig</h3>{top_html}</div>
+
+<h2>Weltwirtschaft</h2>
+<div class="box"><h3>Schlagzeilen</h3><ul>{news}</ul></div>
+<div class="box"><h3>Wichtige Termine (30 Tage)</h3><table>{termine}</table></div>
+<div class="box tabwrap"><h3>Börsen</h3><table>
+<tr><th>Index</th><th class="n">Stand</th><th class="n">1 Tag</th><th class="n">1 Monat</th><th class="n">lfd. Jahr</th></tr>{indizes}</table></div>
+<div class="box tabwrap"><h3>Zinsen, Währung, Rohstoffe</h3><table>
+<tr><th></th><th class="n">Stand</th><th class="n">1 Tag</th><th class="n">1 Monat</th></tr>{umfeld}</table></div>
+<div class="box tabwrap"><h3>Branchen (USA) – wo fließt das Geld hin?</h3><table>
+<tr><th>Branche</th><th class="n">1 Woche</th><th class="n">1 Monat</th><th class="n">3 Monate</th></tr>{sektoren}</table></div>
+
+<h2>ETFs</h2>
+<div class="box tabwrap"><table>{kopf}{score_zeilen(d['etfs'], 'etf')}</table></div>
+{karten_etf}
+
+<h2>Aktien</h2>
+<p class="grau" style="font-size:13px">Einzelaktien schwanken deutlich stärker als ETFs. Score = 80 % Kursbild + bis zu 20 Punkte für Bewertung
+(erwartetes KGV, Analysten-Kursziel, Gewinnwachstum). Der Rückblick-Test prüft nur den Kursteil.</p>
+<div class="box tabwrap"><table>{kopf}{score_zeilen(d['aktien'], 'aktie')}</table></div>
+{karten_aktie}
+
+<h2>Begriffe kurz erklärt</h2>
+<div class="box" style="font-size:14px">{glossar}</div>
+
+<p class="grau" style="font-size:12px">Daten: Yahoo Finance (verzögert, ohne Gewähr), Nachrichten aus den angegebenen RSS-Feeds.
+Der Score bewertet die Lage im Vergleich zur eigenen Vergangenheit und kann keine Kurse vorhersagen. Keine Anlageberatung.</p>
+{skripte}
+</body></html>"""
+
+
+def zusammenfassung(d: dict) -> str:
+    """Kurzfassung als Markdown – GitHub verschickt sie als Benachrichtigungs-E-Mail."""
+    k, schwelle = d["klima"], d["schwelle"]
+    emoji = {"#cf222e": "🔴", "#d4a72c": "🟡", "#1a7f37": "🟢"}.get(k["farbe"], "⚪")
+    z = []
+    if d.get("url"):
+        z.append(f"**[👉 Ganzen Bericht mit Diagrammen öffnen]({d['url']})**\n")
+    if d["demo"]:
+        z.append("> ⚠️ DEMO-MODUS: simulierte Kurse\n")
+    z.append(f"## {emoji} Marktklima: {k['titel']}")
+    z += [f"- {g}" for g in k["gruende"]]
+    z.append(f"\n**Was heißt das für dich?** {k['rat']}\n")
+
+    def tabelle(liste, ueberschrift):
+        z.append(f"## {ueberschrift}")
+        z.append("| Name | Score | Einschätzung | 1 Monat | vom Hoch |")
+        z.append("|---|---:|---|---:|---:|")
+        for e in sorted(liste, key=lambda x: -x["score"] if not x.get("fehler") else 999):
+            if e.get("fehler"):
+                z.append(f"| {e['name']} | – | keine Daten | | |")
+                continue
+            text = stufe(e["score"])[0]
+            fett = "**" if e["score"] >= schwelle else ""
+            z.append(f"| {fett}{e['name']}{fett} | {fett}{e['score']:.0f}{fett} | {text} | "
+                     f"{pct(e['perf'].get('1M'))} | {pct(e['df']['rueckgang'].iloc[-1], 0)} |")
+        z.append("")
+
+    tabelle(d["etfs"], "ETFs")
+    tabelle(d["aktien"], "Aktien")
+    z.append(f"*Fett = Score ab {schwelle:.0f} (Signal). Hoher Score = historisch eher günstig, keine Kursprognose.*\n")
+
+    z.append("## 🌍 Börsen & Umfeld")
+    z.append("| | Stand | 1 Tag | 1 Monat |")
+    z.append("|---|---:|---:|---:|")
+    for x in d["indizes"] + d["umfeld"]:
+        z.append(f"| {x['name']} | {zahl(x['kurs'], 2)} | {pct(x['perf'].get('1T'))} | {pct(x['perf'].get('1M'))} |")
+    z.append("")
+
+    z.append("## 📅 Termine (30 Tage)")
+    z += [f"- {WOCHENTAGE[t['datum'].weekday()][:2]} {t['datum']:%d.%m.}: {t['titel']}" for t in d["termine"]] \
+        or ["- keine"]
+    z.append("\n## 📰 Schlagzeilen")
+    for n in d["nachrichten"]:
+        titel = n["titel"].replace("[", "(").replace("]", ")")
+        z.append(f"- [{titel}]({n['link']}) – {n['quelle']}" if n.get("link") else f"- {titel} – {n['quelle']}")
+    if not d["nachrichten"]:
+        z.append("- keine abrufbar")
+    z.append("\n---\n*Daten: Yahoo Finance (ohne Gewähr). Keine Anlageberatung.*")
+    return "\n".join(z)
 

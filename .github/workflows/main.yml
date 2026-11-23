@@ -51,6 +51,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          printf '\n\n@%s – dein neuer Bericht ist da.\n' "${{ github.repository_owner }}" >> ausgabe/zusammenfassung.md
           gh label create marktbericht --color 0969da --description "Markt-Bericht" --force
           gh issue create --title "$(cat ausgabe/titel.txt)" \
                           --body-file ausgabe/zusammenfassung.md \
